@@ -14,18 +14,24 @@ class RobotVisualizer():
     def __init__(self, robot_dir_name, robot_name, batch_size, device,
                  robot_body_sphere_radii, robot_body_sphere_position,
                  world_model, vertical_offset, fabric_joint_names,
-                 spacing=3.):
+                 spacing=3., record_path=None, camera_eye=(-2.4, 0.1, 1.0), camera_target=(-0.3, 0.1, 0.6)):
 
         ## Isaac Sim related imports
         from isaacsim import SimulationApp
         self.simulation_app = SimulationApp({"headless": False})
 
-        from omni.isaac.core import SimulationContext
+        # omni.isaac.core became isaacsim.core.* (Isaac Sim 4.5); on 6.x those live in extsDeprecated.
+        import omni.kit.app
+        ext_manager = omni.kit.app.get_app().get_extension_manager()
+        for ext in ["isaacsim.core.utils", "isaacsim.core.prims", "isaacsim.core.api"]:
+            ext_manager.set_extension_enabled_immediate(ext, True)
+
+        from isaacsim.core.api import SimulationContext
         #from omni.isaac.core.articulations import Articulation
-        from omni.isaac.core.world import World
-        from omni.isaac.core.articulations import ArticulationView
-        from omni.isaac.core.utils.stage import add_reference_to_stage
-        from omni.isaac.core.prims import XFormPrimView
+        from isaacsim.core.api import World
+        from isaacsim.core.prims import Articulation as ArticulationView
+        from isaacsim.core.utils.stage import add_reference_to_stage
+        from isaacsim.core.prims import XFormPrim as XFormPrimView
         
         # Fabrics imports
         from fabrics_sim.utils.path_utils import get_world_path, get_object_urdf_path, get_robot_usd_path
@@ -111,8 +117,22 @@ class RobotVisualizer():
         self.joint_indices =\
             [self.fabric_joint_names.index(joint_name) for joint_name in self.robots_view.dof_names]
 
+        # Optional recording: an RGB annotator on the viewport camera, frames streamed into an mp4.
+        self.writer = None
+        if record_path is not None:
+            import imageio
+            import omni.kit.app
+            omni.kit.app.get_app().get_extension_manager().set_extension_enabled_immediate("omni.replicator.core", True)
+            import omni.replicator.core as rep
+            from isaacsim.core.utils.viewports import set_camera_view
+            set_camera_view(eye=np.array(camera_eye), target=np.array(camera_target), camera_prim_path="/OmniverseKit_Persp")
+            self.rgb = rep.AnnotatorRegistry.get_annotator("rgb")
+            self.rgb.attach([rep.create.render_product("/OmniverseKit_Persp", (1280, 720))])
+            self.writer = imageio.get_writer(record_path, fps=15, macro_block_size=1)
+            self.record_path = record_path
+
     def add_robot_spheres(self, robot_body_sphere_radii):
-        from omni.isaac.core.objects import VisualSphere
+        from isaacsim.core.api.objects import VisualSphere
 
         for i in range(self.batch_size):
             sphere_handles = []
@@ -131,7 +151,7 @@ class RobotVisualizer():
             self.robot_sphere_handles.append(sphere_handles)
 
     def add_world_objects(self, world_model):
-        from omni.isaac.core.objects import VisualCuboid
+        from isaacsim.core.api.objects import VisualCuboid
         for i in range(self.batch_size):
             # Create objects in world
             # Add visualization box for obstacle box to scene.
@@ -161,6 +181,17 @@ class RobotVisualizer():
                     )
                 )
             self.object_handles.append(object_handles)
+
+        # The boxes enclose the robot and would shadow it completely: keep them visible but casting no shadow,
+        # and light the scene evenly with a dome light.
+        import omni.usd
+        from pxr import Sdf, UsdGeom, UsdLux
+        stage = omni.usd.get_context().get_stage()
+        for i in range(self.batch_size):
+            for j in range(len(world_model.get_object_names())):
+                prim = stage.GetPrimAtPath("/World/Robot_" + str(i + 1) + "/Object_" + str(j + 1))
+                UsdGeom.PrimvarsAPI(prim).CreatePrimvar("doNotCastShadows", Sdf.ValueTypeNames.Bool).Set(True)
+        UsdLux.DomeLight.Define(stage, "/World/DomeLight").CreateIntensityAttr(1500.0)
 
     def set_robot_sphere_position(self, sphere_position):
         self.robot_sphere_view.set_world_poses(positions=sphere_position)
@@ -209,10 +240,17 @@ class RobotVisualizer():
 
         # step and render
         self.simulation_context.step(render=True)
+        if self.writer is not None:
+            frame = np.asarray(self.rgb.get_data())
+            if frame.size:  # the first frames can be empty while the renderer warms up
+                self.writer.append_data(frame[..., :3])
 
         #print('errors', joint_position - self.robots_view.get_joint_positions())
         error = joint_position - self.robots_view.get_joint_positions()
 
     def close(self):
+        if self.writer is not None:
+            self.writer.close()
+            print('Saved recording to', self.record_path)
         self.simulation_context.stop()
         self.simulation_app.close()

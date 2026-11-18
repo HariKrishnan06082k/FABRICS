@@ -45,6 +45,7 @@ parser.add_argument('--batch_size', type=int, required=True, help='Specify batch
 parser.add_argument('--render', action='store_true', help='True to render fabric motion.')
 parser.add_argument('--vis_col_spheres', action='store_true', help='True to visualize collision spheres of robot.')
 parser.add_argument('--cuda_graph', action='store_true', help='True to enable graph capture of fabric.')
+parser.add_argument('--record', type=str, default=None, help='Save the rendered motion to this mp4 (needs --render).')
 args = parser.parse_args()
 
 # Settings
@@ -125,11 +126,13 @@ if use_viz:
     if render_spheres:
         robot_visualizer = RobotVisualizer(robot_dir_name, robot_name, batch_size, device,
                                     body_sphere_radii, sphere_position,
-                                    world_model, vertical_offset, kuka_allegro_fabric.get_joint_names())
+                                    world_model, vertical_offset, kuka_allegro_fabric.get_joint_names(),
+                                    record_path=args.record)
     else:
         robot_visualizer = RobotVisualizer(robot_dir_name, robot_name, batch_size, device,
                                     None, None,
-                                    world_model, vertical_offset, kuka_allegro_fabric.get_joint_names())
+                                    world_model, vertical_offset, kuka_allegro_fabric.get_joint_names(),
+                                    record_path=args.record)
 
 # Graph capture
 g = None
