@@ -20,11 +20,11 @@ L = torch.zeros_like(A)
 wp.launch(kernel=cholesky_factorization,
           dim=(batch_size, mat_dim, mat_dim),
           inputs=[
-              wp.torch.from_torch(A),
+              wp.from_torch(A),
               mat_dim
               ],
           outputs=[
-              wp.torch.from_torch(L)],
+              wp.from_torch(L)],
           device=device)
 
 print(L)
@@ -38,11 +38,11 @@ L_inv = torch.zeros_like(L)
 wp.launch(kernel=inverse_lower_triangular_matrix,
           dim=(batch_size, mat_dim, mat_dim),
           inputs=[
-              wp.torch.from_torch(L),
+              wp.from_torch(L),
               mat_dim
               ],
           outputs=[
-              wp.torch.from_torch(L_inv)],
+              wp.from_torch(L_inv)],
           device=device)
 
 print(L_inv)

@@ -304,8 +304,8 @@ class Repulsion(torch.autograd.Function):
         ctx.tape = wp.Tape()
 
         # Hold onto inputs and outputs
-        ctx.robot_body_pose = wp.torch.from_torch(robot_body_pose)
-        ctx.robot_body_velocity = wp.torch.from_torch(robot_body_velocity)
+        ctx.robot_body_pose = wp.from_torch(robot_body_pose)
+        ctx.robot_body_velocity = wp.from_torch(robot_body_velocity)
         ctx.allocated_data = allocated_data
         
         with ctx.tape:
@@ -314,9 +314,9 @@ class Repulsion(torch.autograd.Function):
                 ctx.robot_body_velocity,
                 ctx.allocated_data)
         
-        return (wp.torch.to_torch(ctx.allocated_data['metrics']),
-                wp.torch.to_torch(ctx.allocated_data['forces']),
-                wp.torch.to_torch(ctx.allocated_data['linear_maps']))
+        return (wp.to_torch(ctx.allocated_data['metrics']),
+                wp.to_torch(ctx.allocated_data['forces']),
+                wp.to_torch(ctx.allocated_data['linear_maps']))
 
     @staticmethod
     def backward(ctx, adj_metrics, adj_forces, adj_linear_maps):
@@ -324,18 +324,18 @@ class Repulsion(torch.autograd.Function):
         # Map incoming Torch grads to our output variables
         # TODO: this should be allocated_data, not allocated_state
         grads = { ctx.allocated_state['metrics']:
-                      wp.torch.from_torch(adj_metrics, dtype=mat33, ndim=3),
+                      wp.from_torch(adj_metrics, dtype=mat33, ndim=3),
                   ctx.allocated_state['forces']:
-                      wp.torch.from_torch(adj_forces, dtype=vec3, ndim=3),
+                      wp.from_torch(adj_forces, dtype=vec3, ndim=3),
                   ctx.allocated_state['linear_maps']:
-                      wp.torch.from_torch(adj_linear_maps, dtype=float, ndim=4) }
+                      wp.from_torch(adj_linear_maps, dtype=float, ndim=4) }
 
         # Calculate gradients
         ctx.tape.backward(grads=grads)
 
         # Return adjoint w.r.t. inputs
-        return (wp.torch.to_torch(ctx.tape.gradients[ctx.robot_body_pose]),
-                wp.torch.to_torch(ctx.tape.gradients[ctx.robot_body_velocity]),
+        return (wp.to_torch(ctx.tape.gradients[ctx.robot_body_pose]),
+                wp.to_torch(ctx.tape.gradients[ctx.robot_body_velocity]),
                 None)
 
 class BodyRepulsion(BaseFabricTerm):
@@ -506,10 +506,10 @@ class BodyRepulsion(BaseFabricTerm):
         @return ray_hit_points: 3D point locations on the object.
         """
 
-        return wp.torch.to_torch(self.allocated_data['ray_hit_points'])
+        return wp.to_torch(self.allocated_data['ray_hit_points'])
         
     def get_collision_status(self):
-        self.in_collision = wp.torch.to_torch(self.allocated_data['collision_state'])
+        self.in_collision = wp.to_torch(self.allocated_data['collision_state'])
         self.in_collision = torch.sum(torch.sum(self.in_collision, dim=2), dim=1)
 
         return self.in_collision

@@ -11,7 +11,7 @@ import os
 
 import torch
 import numpy as np
-from urdfpy import URDF
+import yourdfpy
 import yaml
 
 from fabrics_sim.fabrics.model_batch_builder import create_model_batch
@@ -21,8 +21,6 @@ from fabrics_sim.utils.path_utils import get_robot_urdf_path, get_params_path
 from fabrics_sim.utils.math_utils import inverse_pd_matrix
 
 import warp as wp
-import warp.sim
-from warp.sim.import_urdf import parse_urdf
 
 import time
 
@@ -59,7 +57,7 @@ class AccelConstraint(torch.autograd.Function):
         ctx.tape = wp.Tape()
 
         # Hold onto inputs and ouputs
-        ctx.qdd = wp.torch.from_torch(qdd)
+        ctx.qdd = wp.from_torch(qdd)
         ctx.allocated_data = allocated_data
 
         with ctx.tape:
@@ -74,22 +72,22 @@ class AccelConstraint(torch.autograd.Function):
                           ctx.allocated_data['qdd_scaled']],
                       device=ctx.allocated_data['device'])
 
-        return wp.torch.to_torch(ctx.allocated_data['qdd_scaled'])
+        return wp.to_torch(ctx.allocated_data['qdd_scaled'])
 
     @staticmethod
     def backward(ctx, adj_qdd_scaled):
         #grads = { ctx.allocated_data['qdd_scaled']:
-        #            wp.torch.from_torch(adj_qdd_scaled) }
+        #            wp.from_torch(adj_qdd_scaled) }
 
-        ctx.allocated_data['qdd_scaled'].grad = wp.torch.from_torch(adj_qdd_scaled)
+        ctx.allocated_data['qdd_scaled'].grad = wp.from_torch(adj_qdd_scaled)
     
         # Calculate gradients
         #ctx.tape.backward(grads=grads)
         ctx.tape.backward()
 
         # Return adjoint w.r.t. inputs
-        #return (wp.torch.to_torch(ctx.tape.gradients[ctx.qdd]), None)
-        return (wp.torch.to_torch(ctx.tape.gradients[ctx.qdd]), None)
+        #return (wp.to_torch(ctx.tape.gradients[ctx.qdd]), None)
+        return (wp.to_torch(ctx.tape.gradients[ctx.qdd]), None)
 
 class BaseFabric(torch.nn.Module):
     """
@@ -125,7 +123,7 @@ class BaseFabric(torch.nn.Module):
         # Robot model
         self.model = None
         self.robot_name = None
-        self.urdfpy_robot = None
+        self.urdf_robot = None
         self.batch_size = batch_size
         # List of NN modules
         self.module_list = torch.nn.ModuleList()
@@ -182,7 +180,7 @@ class BaseFabric(torch.nn.Module):
 
             # Save updated accel limits
             self.allocated_data['accel_limits'] =\
-                    wp.torch.from_torch(new_accel_limits)
+                    wp.from_torch(new_accel_limits)
             
             # Save updated timestep
             self.allocated_data['timestep'] = timestep
@@ -666,34 +664,20 @@ class BaseFabric(torch.nn.Module):
         if robot_dir_name is not None:
             self.batch_size = batch_size
 
-            # Load the robot.
-            builder = wp.sim.ModelBuilder()
-
+            # Load the robot description, used for joint names and limits. (The warp.sim model built here
+            # before the Warp port was never used.)
             robot_urdf_filename = get_robot_urdf_path(robot_dir_name, robot_name)
-            # TODO: need to create an xform, which is a warp data type and pass it as a third argument here.
-            initial_rotation = wp.quat(0., 0., 0., 1.)
-            initial_position = wp.vec3(0., 0., 0.)
-            initial_transform = wp.transform(initial_position, initial_rotation)
+            self.urdf_robot = yourdfpy.URDF.load(robot_urdf_filename, load_meshes=False, build_scene_graph=False,
+                                                 build_collision_scene_graph=False).robot
 
-            # Make urdfpy robot so we can use it to access joint limits later
-            self.urdfpy_robot = URDF.load(robot_urdf_filename)
-            
             # Count number of active joints
-            joints = self.urdfpy_robot.joints # this is a list
+            joints = self.urdf_robot.joints # this is a list
             self._num_joints = 0
             for i in range(len(joints)):
                 # NOTE: We are only supporting revolute joints right now.
-                if joints[i].joint_type == 'revolute':
+                if joints[i].type == 'revolute':
                     self._num_joints += 1
                     self.joint_names.append(joints[i].name)
-
-            # Convert to Warp object
-            print('importing robot')
-            wp.sim.parse_urdf(robot_urdf_filename, builder, initial_transform)
-            
-            print('finalizing model')
-            self.model = builder.finalize(device=self.device)
-            self.model.ground = True
 
         # Allocate memeory for scaled accelerations
         self.allocate_scaled_accel()

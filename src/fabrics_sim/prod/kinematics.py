@@ -13,6 +13,7 @@ import numpy as np
 
 import warp as wp
 from fabrics_sim.prod.import_urdf import parse_urdf_annotated as parse_urdf
+from fabrics_sim.prod.import_urdf import JOINT_REVOLUTE, JOINT_FIXED, JOINT_PRISMATIC
 from fabrics_sim.prod.cuda_stream_utils import setup_torch_to_use_warp_streams
 
 
@@ -64,7 +65,7 @@ def make_ancestory_matrix_from_paths(link_paths_numpy, device):
     """
     num_links = len(link_paths_numpy)
     link_ancestory_matrix = wp.zeros(shape=(num_links, num_links), dtype=int, device=device)
-    link_ancestory_matrix_torch = wp.torch.to_torch(link_ancestory_matrix)
+    link_ancestory_matrix_torch = wp.to_torch(link_ancestory_matrix)
 
     # We'll look at the link paths to a given link. If a link i appears along the link path of a
     # given link j, then i s an ancessor of j as long as i != j. That last condition only holds for
@@ -93,7 +94,7 @@ def paths_to_warp(paths, device):
         for path_index in range(len(path)):
             torch_paths[link_index, path_index+1] = path[path_index]
 
-    return wp.torch.from_torch(torch_paths)
+    return wp.from_torch(torch_paths)
 
 
 """ Efficient kernels for computing the forward kinematics of the robot.
@@ -178,11 +179,11 @@ def link_transforms_kernel(
         X_pj = joint_transforms_in_parent_coords[link_index]
         
         joint_type = joint_types[link_index]
-        if joint_type == wp.sim.JOINT_REVOLUTE:
+        if joint_type == JOINT_REVOLUTE:
             cspace_index = link2cspace[link_index]
             q = cspace_q[tid, cspace_index]
             X_jc = wp.transform(wp.vec3(), wp.quat_from_axis_angle(joint_axis, q))
-        elif joint_type == wp.sim.JOINT_FIXED:
+        elif joint_type == JOINT_FIXED:
             X_jc = wp.transform_identity()
 
         X_wc = X_wp * X_pj * X_jc
@@ -215,14 +216,14 @@ def link_transforms_multithreaded_kernel(
         X_pj = joint_transforms_in_parent_coords[link_index]
         
         joint_type = joint_types[link_index]
-        if joint_type == wp.sim.JOINT_REVOLUTE:
+        if joint_type == JOINT_REVOLUTE:
             cspace_index = link2cspace[link_index]
             q = cspace_q[batch_index, cspace_index]
             X_jc = wp.transform(wp.vec3(), wp.quat_from_axis_angle(joint_axis, q))
-        elif joint_type == wp.sim.JOINT_FIXED:
+        elif joint_type == JOINT_FIXED:
             X_jc = wp.transform_identity()
         # TODO: Add support for prismatic joints.
-        #elif joint_type == wp.sim.JOINT_PRISMATIC:
+        #elif joint_type == JOINT_PRISMATIC:
         #    print("<encountered prismatic joints>")
 
         X_wc = X_wc * X_pj * X_jc
@@ -263,13 +264,13 @@ def eval_kinematics_with_velocities_and_axes_kernel(
 
         joint_type = joint_types[link_index]
         cspace_index = link2cspace[link_index]
-        if joint_type == wp.sim.JOINT_REVOLUTE:
+        if joint_type == JOINT_REVOLUTE:
             q = batch_cspace_q[batch_index, cspace_index]
             qd = batch_cspace_qd[batch_index, cspace_index]  # Used in the conditional block below.
 
             X_child2joint = wp.transform(wp.vec3(), wp.quat_from_axis_angle(local_joint_axis, q))
 
-        elif joint_type == wp.sim.JOINT_FIXED:
+        elif joint_type == JOINT_FIXED:
             X_child2joint = wp.transform_identity()
         
         # Compute world transform of link and extract the joint axis. Note that prev_link_transform is
@@ -286,7 +287,7 @@ def eval_kinematics_with_velocities_and_axes_kernel(
         parent_linear_velocity = wp.spatial_bottom(parent_spatial_velocity)
         linear_velocity = parent_linear_velocity + wp.cross(parent_angular_velocity, parent_orig_to_child_orig)
 
-        if joint_type == wp.sim.JOINT_REVOLUTE:
+        if joint_type == JOINT_REVOLUTE:
             # If this is a revolute joint, the angular velocity of the link will update and we'll shift
             # the origin to the new joint.
             joint_axis_in_world_coords = transform_vector(X_child2world, local_joint_axis)  # Compute joint axis in world coords.
@@ -333,13 +334,13 @@ def eval_kinematics_with_velocities_and_axes_multithreaded_kernel(
         X_joint2parent = joint_transforms_in_parent_coords[link_index]
 
         joint_type = joint_types[link_index]
-        if joint_type == wp.sim.JOINT_REVOLUTE:
+        if joint_type == JOINT_REVOLUTE:
             q = batch_cspace_q[batch_index, cspace_index]
             qd = batch_cspace_qd[batch_index, cspace_index]  # Used in the conditional block below.
 
             X_child2joint = wp.transform(wp.vec3(), wp.quat_from_axis_angle(local_joint_axis, q))
 
-        elif joint_type == wp.sim.JOINT_FIXED:
+        elif joint_type == JOINT_FIXED:
             X_child2joint = wp.transform_identity()
         
         # Compute world transform of link and extract the joint axis. Note that prev_link_transform is
@@ -356,7 +357,7 @@ def eval_kinematics_with_velocities_and_axes_multithreaded_kernel(
         parent_linear_velocity = wp.spatial_bottom(parent_spatial_velocity)
         linear_velocity = parent_linear_velocity + wp.cross(parent_angular_velocity, parent_orig_to_child_orig)
 
-        if joint_type == wp.sim.JOINT_REVOLUTE:
+        if joint_type == JOINT_REVOLUTE:
             # If this is a revolute joint, the angular velocity of the link will update and we'll shift
             # the origin to the new joint.
             joint_axis_in_world_coords = transform_vector(X_child2world, local_joint_axis)  # Compute joint axis in world coords.
@@ -438,14 +439,9 @@ class KinematicsBase(object):
 
         if verbose:
             print("<parsing the URDF>")
-        self.builder = wp.sim.ModelBuilder()
-
         if verbose:
             print("urdf_path:", urdf_path)
-        self.urdf_info = parse_urdf(
-                urdf_path, self.builder, wp.transform_identity(),
-                include_collisions=False, verbose=verbose)
-        self.model = self.builder.finalize(self.device)
+        self.urdf_info, self.model = parse_urdf(urdf_path, self.device, verbose=verbose)
         self.link_index_map = self.urdf_info.link_index_map
         self.link_names = [name for name in self.urdf_info.link_index_map]
 
@@ -548,10 +544,10 @@ class Kinematics(KinematicsBase):
                 requires_grad=True)
         
         # Torch handles
-        self.batch_link_transforms_torch = wp.torch.to_torch(self.batch_link_transforms)
-        self.batch_link_spatial_velocities_torch = wp.torch.to_torch(self.batch_link_spatial_velocities)
-        self.batch_joint_axes_torch = wp.torch.to_torch(self.batch_joint_axes)
-        self.batch_link_jacobians_torch = wp.torch.to_torch(self.batch_link_jacobians)
+        self.batch_link_transforms_torch = wp.to_torch(self.batch_link_transforms)
+        self.batch_link_spatial_velocities_torch = wp.to_torch(self.batch_link_spatial_velocities)
+        self.batch_joint_axes_torch = wp.to_torch(self.batch_joint_axes)
+        self.batch_link_jacobians_torch = wp.to_torch(self.batch_link_jacobians)
 
     def eval(self, batch_q, batch_qd=None, jacobians=False, thread_across_links=None):
         """ Evaluate the kinematics given the provide information.
@@ -601,7 +597,7 @@ class Kinematics(KinematicsBase):
         batch_q_torch[:d,:] += eps * torch.eye(d)
 
         # Compute the FK for the batch and extract the positions.
-        self.eval(wp.torch.from_torch(batch_q_torch), thread_across_links=thread_across_links)
+        self.eval(wp.from_torch(batch_q_torch), thread_across_links=thread_across_links)
         X = self.batch_link_transforms_torch[:(d+1), link_index, :3]
 
         # Compute the Jacobian transpose using finite-differencing of the perturbed positions.
@@ -723,11 +719,11 @@ def eval_kinematics_with_jacobians_kernel(
         X_pj = joint_transforms_in_parent_coords[link_index]
         
         joint_type = joint_types[link_index]
-        if joint_type == wp.sim.JOINT_REVOLUTE:
+        if joint_type == JOINT_REVOLUTE:
             q = cspace_q[tid, cspace_index]
             cspace_index += 1
             X_jc = wp.transform(wp.vec3(), wp.quat_from_axis_angle(joint_axis, q))
-        elif joint_type == wp.sim.JOINT_FIXED:
+        elif joint_type == JOINT_FIXED:
             X_jc = wp.transform_identity()
 
         link_transforms[tid, link_index] = X_wp * X_pj * X_jc
@@ -1297,18 +1293,10 @@ class KinematicsRaw:
 
         if verbose:
             print("<parsing the URDF>")
-        builder = wp.sim.ModelBuilder()
-
         if verbose:
             print("urdf_path:", urdf_path)
-        link_index_map, cspace2link, cspace_joint_limits = parse_urdf(
-                urdf_path, builder, wp.transform_identity(),
-                include_collisions=False, verbose=verbose)
-        self.link_index_map = link_index_map
-        self.cspace2link = cspace2link
-        self.cspace_joint_limits = cspace_joint_limits
-
-        self.model = builder.finalize(self.device)
+        info, self.model = parse_urdf(urdf_path, self.device, verbose=verbose)
+        link_index_map, cspace2link, cspace_joint_limits = info.link_index_map, info.cspace2link, info.cspace_joint_limits
         self.link_index_map = link_index_map
 
         # Make some of the kinematics information that's not already in the model accessible from

@@ -7,108 +7,24 @@
 
 """ URDF import module.
 
-This module is copied from warp.sim.import_urdf. parse_urdf_annotated is based on parse_urdf, but
-modified to return additional information important for the kinematics and fabrics calculations
-here. Additionally adds an include_collisions flag which can be set to false to prevent constructing
-collision data structures which can be slow.
+Reads a URDF with yourdfpy and returns the kinematic arrays the fabric kinematics kernels need: the arrays that
+warp.sim's ModelBuilder used to provide (warp.sim is gone from current Warp), plus the cspace maps that
+parse_urdf_annotated always returned. Joint order, transforms and axes follow the old warp.sim path exactly.
 """
 
-try:
-    import urdfpy
-except:
-    pass
-
 from collections import OrderedDict
-import math
+from types import SimpleNamespace
+
 import numpy as np
-import os
-import xml.etree.ElementTree as ET
-
 import warp as wp
-from warp.sim.model import Mesh
+import yourdfpy
 
-
-def urdf_add_collision(builder, link, collisions, density, shape_ke, shape_kd, shape_kf, shape_mu):
-
-    # add geometry
-    for collision in collisions:
-
-        origin = urdfpy.matrix_to_xyz_rpy(collision.origin)
-
-        pos = origin[0:3]
-        rot = wp.quat_rpy(*origin[3:6])
-
-        geo = collision.geometry
-
-        if geo.box:
-            builder.add_shape_box(
-                body=link,
-                pos=pos,
-                rot=rot,
-                hx=geo.box.size[0]*0.5,
-                hy=geo.box.size[1]*0.5,
-                hz=geo.box.size[2]*0.5,
-                density=density,
-                ke=shape_ke,
-                kd=shape_kd,
-                kf=shape_kf,
-                mu=shape_mu)
-
-        if geo.sphere:
-            builder.add_shape_sphere(
-                body=link,
-                pos=pos,
-                rot=rot,
-                radius=geo.sphere.radius,
-                density=density,
-                ke=shape_ke,
-                kd=shape_kd,
-                kf=shape_kf,
-                mu=shape_mu)
-
-        if geo.cylinder:
-
-            # cylinders in URDF are aligned with z-axis, while Warp uses x-axis
-            r = wp.quat_from_axis_angle((0.0, 1.0, 0.0), math.pi*0.5)
-
-            builder.add_shape_capsule(
-                body=link,
-                pos=pos,
-                rot=wp.mul(rot, r),
-                radius=geo.cylinder.radius,
-                half_width=geo.cylinder.length*0.5,
-                density=density,
-                ke=shape_ke,
-                kd=shape_kd,
-                kf=shape_kf,
-                mu=shape_mu)
-
-        if geo.mesh:
-
-            for m in geo.mesh.meshes:
-                faces = []
-                vertices = []
-
-                for v in m.vertices:
-                    vertices.append(np.array(v))
-
-                for f in m.faces:
-                    faces.append(int(f[0]))
-                    faces.append(int(f[1]))
-                    faces.append(int(f[2]))
-
-                mesh = Mesh(vertices, faces)
-
-                builder.add_shape_mesh(
-                    body=link,
-                    pos=pos,
-                    rot=rot,
-                    mesh=mesh,
-                    density=density,
-                    ke=shape_ke,
-                    kd=shape_kd,
-                    kf=shape_kf,
-                    mu=shape_mu)
+# Joint type codes, same values as the removed warp.sim constants.
+JOINT_PRISMATIC = wp.constant(0)
+JOINT_REVOLUTE = wp.constant(1)
+JOINT_BALL = wp.constant(2)
+JOINT_FIXED = wp.constant(3)
+JOINT_FREE = wp.constant(4)
 
 
 class UrdfInfo:
@@ -124,265 +40,92 @@ class UrdfInfo:
             self.cspace_name2index_map[name] = i
 
 
-def expand_link(branches, link_name, joint_list):
-    """ Expands the named link by looking up the set of joints in the branches. Adds them recursively
-    to the joint_list in depth first order.
-    """
-    if link_name not in branches:
-        # Base case.
-        return
-    else:
-        edges = branches[link_name]
-        for joint in edges:
-            joint_list.append(joint)
-            expand_link(branches, joint.child, joint_list)
-
-
-class KinematicTree(object):
-    """ Simple representation of the kinematic tree stored in a urdfpy URDF object.
-
-    Represents the tree simply as a map from link name to the list of branches extending from that link.
-    The branches for each link are listed in the order they're specified in the URDF.
-    """
-    def __init__(self, robot):
-        self.robot = robot
-        self.branches = {}
-        for joint in robot.joints:
-            self.get_link_branches(joint.parent).append(joint)
-
-    def get_link_branches(self, name):
-        """ Get the list of branches for the named link. If that link isn't currently in the dict,
-        populates the entry as an empty list and returns that.
-        """
-        if name not in self.branches:
-            b = []
-            self.branches[name] = b
-            return b
+def matrix_to_rpy(R):
+    """Roll-pitch-yaw of a 3x3 rotation matrix, copied from urdfpy.utils.matrix_to_rpy (solution 1)."""
+    R = np.asanyarray(R, dtype=np.float64)
+    if np.abs(R[2, 0]) >= 1.0 - 1e-12:
+        y = 0.0
+        if R[2, 0] < 0:
+            p = np.pi / 2
+            r = np.arctan2(R[0, 1], R[0, 2])
         else:
-            return self.branches[name]
-
-    def get_depth_first_joints(self):
-        """ Returns the list of joints in depth first order.
-        """
-        joint_list = []
-        expand_link(self.branches, self.robot.base_link.name, joint_list)
-        return joint_list
-
-
-#def get_link_to_cspace_map(joint_list):
-#    """ Just step through the joints and increment whenever the joint isn't fixed.
-#    That'll give a map from link to cspace which we can use for lookup.
-#    """
-#    link_to_cspace_map = []
-#    cspace_index = 0
-#    for joint in joint_list:
-#        if joint.
-#    return link_to_cspace_map
-
-
-def parse_urdf_annotated(
-        filename,
-        builder,
-        xform,
-        floating=False,
-        density=0.0,
-        stiffness=100.0,
-        damping=10.0,
-        armature=0.0,
-        shape_ke=1.e+4,
-        shape_kd=1.e+3,
-        shape_kf=1.e+2,
-        shape_mu=0.25,
-        limit_ke=100.0,
-        limit_kd=10.0,
-        include_collisions=True,
-        verbose=False):
-
-    if verbose:
-        print("urdfpy loading:", filename)
-    robot = urdfpy.URDF.load(filename)
-    kinematic_tree = KinematicTree(robot)
-    depth_first_joints = kinematic_tree.get_depth_first_joints()
-    if verbose:
-        for i, joint in enumerate(depth_first_joints):
-            print("{}) <{}> -> <{}>".format(i, joint.parent, joint.child))
-
-    cspace_names = []   # collects the cspace names
-    link_index = OrderedDict() # maps from link name -> link index. Also, stores names in link index order.
-    cspace2link = []    # for each cspace dim, contains the corresponding link index
-    link2cspace = []
-    cspace_joint_limits = []
-
-    if verbose:
-        print("add articulation")
-    builder.add_articulation()
-
-    # import inertial properties from URDF if density is zero
-    if verbose:
-        print("importing inertial props")
-    if density == 0.0:
-        com = urdfpy.matrix_to_xyz_rpy(robot.base_link.inertial.origin)[0:3]
-        I_m = wp.mat33(robot.base_link.inertial.inertia)
-        m = robot.base_link.inertial.mass
+            p = -np.pi / 2
+            r = np.arctan2(-R[0, 1], -R[0, 2])
     else:
-        com = np.zeros(3)
-        I_m = wp.mat33(np.zeros((3, 3)))
-        m = 0.0
+        p = -np.arcsin(R[2, 0])
+        r = np.arctan2(R[2, 1] / np.cos(p), R[2, 2] / np.cos(p))
+        y = np.arctan2(R[1, 0] / np.cos(p), R[0, 0] / np.cos(p))
+    return np.array([r, p, y], dtype=np.float64)
 
-    # add base
-    if floating:
-        if verbose:
-            print("is floating")
-        root = builder.add_body(origin=wp.transform_identity(),
-                                armature=0.,
-                                joint_armature=armature,
-                                com=com,
-                                I_m=I_m,
-                                m=m)
-        builder.add_joint_free(child=root)
 
-        # set dofs to transform
-        start = builder.joint_q_start[root]
+def depth_first_joints(robot, base_link):
+    """Joints in depth-first order from the base link, branches in the order the URDF lists them."""
+    branches = {}
+    for joint in robot.joints:
+        branches.setdefault(joint.parent, []).append(joint)
+    order = []
 
-        builder.joint_q[start + 0] = xform.p[0]
-        builder.joint_q[start + 1] = xform.p[1]
-        builder.joint_q[start + 2] = xform.p[2]
+    def expand(link):
+        for joint in branches.get(link, []):
+            order.append(joint)
+            expand(joint.child)
 
-        builder.joint_q[start + 3] = xform.q[0]
-        builder.joint_q[start + 4] = xform.q[1]
-        builder.joint_q[start + 5] = xform.q[2]
-        builder.joint_q[start + 6] = xform.q[3]
-        urdf_add_collision(
-            builder, root, robot.links[0].collisions, density, shape_ke, shape_kd, shape_kf, shape_mu)
-    else:
-        if verbose:
-            print("not floating")
-            print("  <adding body>")
+    expand(base_link)
+    return order
 
-        root = builder.add_body(origin=wp.transform_identity())
-        
-        builder.add_joint_fixed(parent=-1,
-                                child=root,
-                                parent_xform=xform)
 
-        if include_collisions:
-            if verbose:
-                print("  <adding collision>")
-            urdf_add_collision(
-                builder, root, robot.links[0].collisions, 0.0, shape_ke, shape_kd, shape_kf, shape_mu)
-            if verbose:
-                print("  <done>")
+def parse_urdf_annotated(filename, device, xform=None, verbose=False):
+    """Kinematic tree of a fixed-base URDF with revolute and fixed joints.
 
-    link_index[robot.base_link.name] = root
-    link2cspace.append(-1) # No corresponding cspace dim for the root link.
-
-    # add children
+    Returns (UrdfInfo, model). model holds warp arrays named as on warp.sim's finalized Model: joint_type,
+    joint_parent and joint_X_p for every joint (the root's fixed joint first), joint_axis for the non-fixed
+    joints only, and joint_q with one entry per cspace dim.
+    """
     if verbose:
-        print("adding children")
-    for joint in depth_first_joints:
-        if verbose:
-            print("joint:", joint.name)
+        print("yourdfpy loading:", filename)
+    urdf = yourdfpy.URDF.load(filename, load_meshes=False, build_scene_graph=False, build_collision_scene_graph=False)
+    xform = wp.transform_identity() if xform is None else xform
+    children = {joint.child for joint in urdf.robot.joints}
+    base_link = next(link.name for link in urdf.robot.links if link.name not in children)  # the link no joint moves
 
-        type = None
-        axis = (0.0, 0.0, 0.0)
+    cspace_names, cspace2link, link2cspace, cspace_joint_limits = [], [], [-1], []
+    link_index = OrderedDict({base_link: 0})
+    joint_type, joint_parent, joint_X_p, joint_axis = [int(JOINT_FIXED)], [-1], [xform], []
 
-        if joint.joint_type == "revolute" or joint.joint_type == "continuous":
-            type = wp.sim.JOINT_REVOLUTE
-            axis = joint.axis
-        if joint.joint_type == "prismatic":
-            type = wp.sim.JOINT_PRISMATIC
-            axis = joint.axis
-        if joint.joint_type == "fixed":
-            type = wp.sim.JOINT_FIXED
-        if joint.joint_type == "floating":
-            type = wp.sim.JOINT_FREE
-
+    for joint in depth_first_joints(urdf.robot, base_link):
         if joint.parent not in link_index:
-            # All parents encountered should be already available in the link_index structure because
-            # depth_first_joints is in depth-first order.
             raise RuntimeError("Parent not found: {}".format(joint.parent))
-        parent = link_index[joint.parent]
+        origin = np.eye(4) if joint.origin is None else joint.origin
+        rot = wp.quat_rpy(*matrix_to_rpy(origin[:3, :3]))
+        joint_X_p.append(wp.transform(origin[:3, 3], rot))
+        joint_parent.append(link_index[joint.parent])
+        link = len(joint_type)
 
-        origin = urdfpy.matrix_to_xyz_rpy(joint.origin)
-        pos = origin[0:3]
-        rot = wp.quat_rpy(*origin[3:6])
-
-        lower = -1.e+3
-        upper = 1.e+3
-        damping = 0.0
-
-        # limits
-        if joint.limit:
-            if joint.limit.lower != None:
-                lower = joint.limit.lower
-            if joint.limit.upper != None:
-                upper = joint.limit.upper
-
-        # damping
-        if joint.dynamics:
-            if joint.dynamics.damping:
-                damping = joint.dynamics.damping
-
-        if density == 0.0:
-            com = urdfpy.matrix_to_xyz_rpy(robot.link_map[joint.child].inertial.origin)[0:3]
-            I_m = wp.mat33(robot.link_map[joint.child].inertial.inertia)
-            m = robot.link_map[joint.child].inertial.mass
-        else:
-            com = np.zeros(3)
-            I_m = wp.mat33(np.zeros((3, 3)))
-            m = 0.0
-
-        # add link
-        if verbose:
-            print("  <adding body>")
-
-        start_joint_coord_count = builder.joint_coord_count
-        link = builder.add_body(
-            origin=wp.transform_identity(),
-            armature=0.,
-            com=com,
-            I_m=I_m,
-            m=m)
-
-        if type==wp.sim.JOINT_FIXED:
-            builder.add_joint_fixed(parent=parent,
-                                    child=link,
-                                    parent_xform=wp.transform(pos, rot))
-        elif type==wp.sim.JOINT_REVOLUTE:
-            builder.add_joint_revolute(parent=parent,
-                                       child=link,
-                                       parent_xform=wp.transform(pos, rot),
-                                       child_xform=wp.transform(),
-                                       axis=axis,
-                                       limit_lower=lower,
-                                       limit_upper=upper,
-                                       limit_ke=limit_ke,
-                                       limit_kd=limit_kd)
+        if joint.type in ("revolute", "continuous"):
+            lower, upper = -1.0e3, 1.0e3
+            if joint.limit is not None:
+                lower = joint.limit.lower if joint.limit.lower is not None else lower
+                upper = joint.limit.upper if joint.limit.upper is not None else upper
+            joint_type.append(int(JOINT_REVOLUTE))
+            joint_axis.append(wp.normalize(wp.vec3(*joint.axis)))
+            cspace_names.append(joint.name)
+            cspace2link.append(link)
+            cspace_joint_limits.append((lower, upper))
+        elif joint.type == "fixed":
+            joint_type.append(int(JOINT_FIXED))
         else:
             raise RuntimeError("Joint type not currently supported.")
 
-        end_joint_coord_count = builder.joint_coord_count
-        if end_joint_coord_count != start_joint_coord_count:
-            # We'll enter here for each new joint. This is an added cspace dimension.
-            cspace_names.append(joint.name)
-            cspace2link.append(builder.joint_count-1)  # Minus 1 to get index.
-            cspace_joint_limits.append((lower, upper))
-
-        link2cspace.append(len(cspace_names)-1)
-
-        if include_collisions:
-            # add collisions
-            if verbose:
-                print("  <adding collision>")
-            urdf_add_collision(
-                builder, link, robot.link_map[joint.child].collisions, density, shape_ke, shape_kd, shape_kf, shape_mu)
-            if verbose:
-                print("  <done>")
-
-        # add ourselves to the index
+        link2cspace.append(len(cspace_names) - 1)
         link_index[joint.child] = link
 
-    if verbose:
-        print("done loading urdf")
-
-    return UrdfInfo(cspace_names, link_index, cspace2link, link2cspace, cspace_joint_limits)
+    model = SimpleNamespace(
+        device=device,
+        joint_type=wp.array(joint_type, dtype=int, device=device),
+        joint_parent=wp.array(joint_parent, dtype=int, device=device),
+        joint_X_p=wp.array(joint_X_p, dtype=wp.transform, device=device),
+        joint_axis=wp.array(joint_axis, dtype=wp.vec3, device=device),
+        joint_q=wp.zeros(len(cspace_names), dtype=float, device=device),
+        body_count=len(joint_type))
+    info = UrdfInfo(cspace_names, link_index, cspace2link, link2cspace, cspace_joint_limits)
+    return info, model

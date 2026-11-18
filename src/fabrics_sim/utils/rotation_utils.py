@@ -37,8 +37,8 @@ def matrix_to_euler(matrix):
 
     wp.launch(kernel=matrix_to_euler_kernel,
               dim=(batch_size, 3),
-              inputs=[wp.torch.from_torch(matrix)],
-              outputs=[wp.torch.from_torch(euler_angles)],
+              inputs=[wp.from_torch(matrix)],
+              outputs=[wp.from_torch(euler_angles)],
               device=str(matrix.device))
 
     return euler_angles
@@ -73,8 +73,8 @@ def euler_to_matrix(euler_angles):
 
     wp.launch(kernel=euler_to_matrix_kernel,
               dim=batch_size,
-              inputs=[wp.torch.from_torch(euler_angles)],
-              outputs=[wp.torch.from_torch(matrix)],
+              inputs=[wp.from_torch(euler_angles)],
+              outputs=[wp.from_torch(matrix)],
               device=str(euler_angles.device))
 
     return matrix
@@ -114,8 +114,8 @@ def matrix_to_quaternion(matrix):
 
     wp.launch(kernel=matrix_to_quaternion_kernel,
               dim=batch_size,
-              inputs=[wp.torch.from_torch(matrix)],
-              outputs=[wp.torch.from_torch(quaternion)],
+              inputs=[wp.from_torch(matrix)],
+              outputs=[wp.from_torch(quaternion)],
               device=str(matrix.device))
 
     return quaternion
@@ -148,8 +148,8 @@ def quaternion_to_matrix(quaternion):
 
     wp.launch(kernel=quaternion_to_matrix_kernel,
               dim=batch_size,
-              inputs=[wp.torch.from_torch(quaternion)],
-              outputs=[wp.torch.from_torch(matrix)],
+              inputs=[wp.from_torch(quaternion)],
+              outputs=[wp.from_torch(matrix)],
               device=str(quaternion.device))
     
     return matrix

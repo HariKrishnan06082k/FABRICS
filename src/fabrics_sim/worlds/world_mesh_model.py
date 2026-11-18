@@ -2,9 +2,12 @@ import warp as wp
 import torch
 import numpy as np
 import yaml
+import os
 import time
+from types import SimpleNamespace
 
-from warp.sim.model import Mesh
+import trimesh
+import yourdfpy
 
 from fabrics_sim.utils.path_utils import get_world_path, get_object_urdf_path
 
@@ -61,9 +64,8 @@ class WorldMeshModel():
         objects_vertices_stacked = np.concatenate(objects_vertices, axis=0)
         objects_vertices_stacked = list(objects_vertices_stacked)
 
-        world_mesh = Mesh(objects_vertices_stacked, objects_face_indices_stacked)
-        world_mesh.finalize(device='cuda')
-        self.world_mesh = world_mesh.mesh
+        self.world_mesh = wp.Mesh(points=wp.array(objects_vertices_stacked, dtype=wp.vec3, device='cuda'),
+                                  indices=wp.array(objects_face_indices_stacked, dtype=int, device='cuda'))
         self.world_mesh.refit() # run this so it can be used in raycasting.
        
         # Allocate reference points which we will transform from.
@@ -202,10 +204,10 @@ class WorldMeshesModel():
             # NOTE: we need to copy the mesh points and create the Mesh from those such
             # that we can retain the original mesh points expressed in body-fixed coordinates
             # and calculate new point positions based on transforms.
-            object_model_points = wp.zeros_like(object_model.shape_geo_src[0].mesh.points)
-            wp.copy(object_model_points, object_model.shape_geo_src[0].mesh.points)
+            object_model_points = wp.zeros_like(object_model.points)
+            wp.copy(object_model_points, object_model.points)
             object_mesh = wp.Mesh(object_model_points,
-                                  object_model.shape_geo_src[0].mesh.indices)
+                                  object_model.indices)
 
             # Pull out the object transform
             x_form = [float(x) for x in obj_data['transform'].split()]
@@ -220,7 +222,7 @@ class WorldMeshesModel():
             wp.launch(kernel=transform_single_mesh_points,
                       dim=len(object_mesh.points),
                       inputs=[
-                          object_model.shape_geo_src[0].mesh.points,
+                          object_model.points,
                           object_transform,
                           object_scaling],
                       outputs=[object_mesh.points],
@@ -237,28 +239,22 @@ class WorldMeshesModel():
     
     def create_object_model(self, object_name):
         """
-        Loads the object model urdf.
+        Loads the object's collision mesh, the first <collision> mesh in its urdf, the way warp.sim's
+        parse_urdf did (trimesh, float32 vertices times the mesh scale).
         -----------------------------
         :param object_name: name of object (should be same as folder name and urdf name)
-        :return model: Warp model
+        :return model: namespace with warp arrays points (vec3) and indices (int)
         """
-
-        # Load the object.
-        builder = wp.sim.ModelBuilder()
-
         object_urdf_filename = get_object_urdf_path(object_name)
-        initial_rotation = wp.quat(0., 0., 0., 1.)
-        initial_position = wp.vec3(0., 0., 0.)
-        initial_transform = wp.transform(initial_position, initial_rotation)
-
-        print('importing object')
-        wp.sim.parse_urdf(object_urdf_filename, builder, initial_transform)
-
-        # Finalize model.
-        print('finalizing model')
-        model = builder.finalize(device=self.device)
-
-        return model
+        urdf = yourdfpy.URDF.load(object_urdf_filename, load_meshes=False, build_scene_graph=False,
+                                  build_collision_scene_graph=False)
+        mesh = urdf.robot.links[0].collisions[0].geometry.mesh
+        m = trimesh.load(os.path.join(os.path.dirname(object_urdf_filename), mesh.filename), force="mesh")
+        scale = 1.0 if mesh.scale is None else np.asarray(mesh.scale)
+        points = np.array(m.vertices, dtype=np.float32) * scale
+        indices = np.array(m.faces.flatten(), dtype=np.int32)
+        return SimpleNamespace(points=wp.array(points, dtype=wp.vec3, device=self.device),
+                               indices=wp.array(indices, dtype=int, device=self.device))
 
     def add_object(self, object_name, object_model, object_transform, object_mesh, object_scaling,
                    env_index):

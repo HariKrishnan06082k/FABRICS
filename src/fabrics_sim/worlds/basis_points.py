@@ -4,7 +4,6 @@ import numpy as np
 import yaml
 import time
 
-from warp.sim.model import Mesh
 
 @wp.kernel
 def point_to_mesh_query(
@@ -138,7 +137,7 @@ class BasisPoints():
                 points[i,j] = grid_flat[j][i]
 
         # Convert to Warp vec3 data type
-        self._points = wp.torch.from_torch(points, dtype=wp.vec3)
+        self._points = wp.from_torch(points, dtype=wp.vec3)
 
     def query(self):
         """
@@ -147,11 +146,11 @@ class BasisPoints():
         """
         num_meshes = self.object_ids.shape[1]
 
-        signed_distance_torch = 0. * wp.torch.to_torch(self._signed_distance) + 1e6
-        self._signed_distance = wp.torch.from_torch(signed_distance_torch)
+        signed_distance_torch = 0. * wp.to_torch(self._signed_distance) + 1e6
+        self._signed_distance = wp.from_torch(signed_distance_torch)
 
-        direction_torch = 0. * wp.torch.to_torch(self._direction)
-        self._direction = wp.torch.from_torch(direction_torch, dtype=wp.vec3)
+        direction_torch = 0. * wp.to_torch(self._direction)
+        self._direction = wp.from_torch(direction_torch, dtype=wp.vec3)
 
         max_depth = 2.
         wp.launch(kernel=point_to_mesh_query,
@@ -174,7 +173,7 @@ class BasisPoints():
         ------------------------------------------
         :return points: n x 3 Torch tensor of n 3D points
         """
-        return wp.torch.to_torch(self._points)
+        return wp.to_torch(self._points)
 
     def signed_distance(self):
         """
@@ -182,7 +181,7 @@ class BasisPoints():
         ------------------------------------------
         :return signed_distance: b x n Torch tensor of distances where b is batch size
         """
-        return wp.torch.to_torch(self._signed_distance)
+        return wp.to_torch(self._signed_distance)
 
     def direction(self):
         """
@@ -191,7 +190,7 @@ class BasisPoints():
         :return direction: b x n x 3 Torch tensor stating the 3D direction to cloest
                            point across batch and points
         """
-        return wp.torch.to_torch(self._direction)
+        return wp.to_torch(self._direction)
 
 @wp.kernel
 def point_to_point_cloud_query(
@@ -278,7 +277,7 @@ class BasisPointsToPointCloud():
                 points[i,j] = grid_flat[j][i]
 
         # Convert to Warp vec3 data type
-        self._basis_points = wp.torch.from_torch(points, dtype=wp.vec3)
+        self._basis_points = wp.from_torch(points, dtype=wp.vec3)
         self._basis_points_transformed =\
             wp.zeros(shape=(self.batch_size, self.num_basis_points),
                      dtype=wp.vec3,
@@ -287,11 +286,11 @@ class BasisPointsToPointCloud():
     def query_dist_to_point_cloud(self, basis_points_transform, point_cloud):
         # TODO: basis point transform is (x,y,z,rx,ry,rz,rw) convention
         
-        distance_torch = 0. * wp.torch.to_torch(self._distance) + 1e6
-        self._distance = wp.torch.from_torch(distance_torch)
+        distance_torch = 0. * wp.to_torch(self._distance) + 1e6
+        self._distance = wp.from_torch(distance_torch)
 
-        direction_torch = 0. * wp.torch.to_torch(self._direction)
-        self._direction = wp.torch.from_torch(direction_torch, dtype=wp.vec3)
+        direction_torch = 0. * wp.to_torch(self._direction)
+        self._direction = wp.from_torch(direction_torch, dtype=wp.vec3)
 
         num_point_cloud_points = point_cloud.shape[1]
 
@@ -300,10 +299,10 @@ class BasisPointsToPointCloud():
                   dim=[self.batch_size, self.num_basis_points, num_point_cloud_points],
                   inputs=[
                       self._basis_points,
-                      wp.torch.from_torch(point_cloud, dtype=wp.vec3),
+                      wp.from_torch(point_cloud, dtype=wp.vec3),
                       # TODO: check torch to warp conversion here
                       # TODO: also check (xyzw) convention and order
-                      wp.torch.from_torch(basis_points_transform, dtype=wp.transform),
+                      wp.from_torch(basis_points_transform, dtype=wp.transform),
                       max_depth,
                       ],
                   outputs=[
@@ -319,7 +318,7 @@ class BasisPointsToPointCloud():
         ------------------------------------------
         :return points: n x 3 Torch tensor of n 3D points
         """
-        return wp.torch.to_torch(self._basis_points)
+        return wp.to_torch(self._basis_points)
     
     def basis_points_transformed(self):
         """
@@ -327,7 +326,7 @@ class BasisPointsToPointCloud():
         ------------------------------------------
         :return points: n x 3 Torch tensor of n 3D points
         """
-        return wp.torch.to_torch(self._basis_points_transformed)
+        return wp.to_torch(self._basis_points_transformed)
 
     def distance(self):
         """
@@ -335,7 +334,7 @@ class BasisPointsToPointCloud():
         ------------------------------------------
         :return signed_distance: b x n Torch tensor of distances where b is batch size
         """
-        return wp.torch.to_torch(self._distance)
+        return wp.to_torch(self._distance)
 
     def direction(self):
         """
@@ -344,7 +343,7 @@ class BasisPointsToPointCloud():
         :return direction: b x n x 3 Torch tensor stating the 3D direction to cloest
                            point across batch and points
         """
-        return wp.torch.to_torch(self._direction)
+        return wp.to_torch(self._direction)
 
 
 

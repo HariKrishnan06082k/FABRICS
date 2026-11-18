@@ -74,10 +74,10 @@ class InverseCholesky(torch.autograd.Function):
         ctx.tape = wp.Tape()
 
         # Hold onto inputs and ouputs
-        ctx.A = wp.torch.from_torch(A)
-        ctx.A_inv = wp.torch.from_torch(A_inv)
-        ctx.L = wp.torch.from_torch(L)
-        ctx.L_inv = wp.torch.from_torch(L_inv)
+        ctx.A = wp.from_torch(A)
+        ctx.A_inv = wp.from_torch(A_inv)
+        ctx.L = wp.from_torch(L)
+        ctx.L_inv = wp.from_torch(L_inv)
         ctx.device = device
 
         with ctx.tape:
@@ -103,17 +103,17 @@ class InverseCholesky(torch.autograd.Function):
                       ctx.L_inv],
                   device=ctx.device)
 
-        return wp.torch.to_torch(ctx.L_inv)
+        return wp.to_torch(ctx.L_inv)
 
     @staticmethod
     def backward(ctx, adj_L_inv):
-        ctx.L_inv.grad = wp.torch.from_torch(adj_L_inv)
+        ctx.L_inv.grad = wp.from_torch(adj_L_inv)
     
         # Calculate gradients
         ctx.tape.backward()
 
         # Return adjoint w.r.t. inputs
-        return (wp.torch.to_torch(ctx.tape.gradients[ctx.L_inv]), None,
+        return (wp.to_torch(ctx.tape.gradients[ctx.L_inv]), None,
                 None, None, None)
 
 

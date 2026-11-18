@@ -206,21 +206,21 @@ def eval_collision_response_func(point_positions, point_velocities, allocated_da
     num_meshes = allocated_data['object_mesh'].shape[1]
 
     # Clear the previous values for distance
-    #signed_sphere_distance = 0. * wp.torch.to_torch(allocated_data['signed_sphere_distance']) + 1e6
-    signed_sphere_distance = wp.torch.to_torch(allocated_data['signed_sphere_distance'])
+    #signed_sphere_distance = 0. * wp.to_torch(allocated_data['signed_sphere_distance']) + 1e6
+    signed_sphere_distance = wp.to_torch(allocated_data['signed_sphere_distance'])
     signed_sphere_distance.zero_().add_(1e6)
-    allocated_data['signed_sphere_distance'] = wp.torch.from_torch(signed_sphere_distance)
+    allocated_data['signed_sphere_distance'] = wp.from_torch(signed_sphere_distance)
 
     # Zero out metric and base acceleration
-    #metric = 0. * wp.torch.to_torch(allocated_data['metric'])
-    metric = wp.torch.to_torch(allocated_data['metric'])
+    #metric = 0. * wp.to_torch(allocated_data['metric'])
+    metric = wp.to_torch(allocated_data['metric'])
     metric.zero_()
-    allocated_data['metric'] = wp.torch.from_torch(metric)
+    allocated_data['metric'] = wp.from_torch(metric)
 
-    #base_acceleration = 0. * wp.torch.to_torch(allocated_data['base_acceleration'])
-    base_acceleration = wp.torch.to_torch(allocated_data['base_acceleration'])
+    #base_acceleration = 0. * wp.to_torch(allocated_data['base_acceleration'])
+    base_acceleration = wp.to_torch(allocated_data['base_acceleration'])
     base_acceleration.zero_()
-    allocated_data['base_acceleration'] = wp.torch.from_torch(base_acceleration, dtype=wp.vec3)
+    allocated_data['base_acceleration'] = wp.from_torch(base_acceleration, dtype=wp.vec3)
 
     # Allocate or re-allocate sphere_mesh_checked data if needed
     if allocated_data['sphere_mesh_checked'] is None or\
@@ -231,10 +231,10 @@ def eval_collision_response_func(point_positions, point_velocities, allocated_da
                         device=allocated_data['device'])
     
     # Reset whether meshes were checked against robot for collision
-    #sphere_mesh_checked = 0 * wp.torch.to_torch(allocated_data['sphere_mesh_checked'])
-    sphere_mesh_checked = wp.torch.to_torch(allocated_data['sphere_mesh_checked'])
+    #sphere_mesh_checked = 0 * wp.to_torch(allocated_data['sphere_mesh_checked'])
+    sphere_mesh_checked = wp.to_torch(allocated_data['sphere_mesh_checked'])
     sphere_mesh_checked.zero_()
-    allocated_data['sphere_mesh_checked'] = wp.torch.from_torch(sphere_mesh_checked)
+    allocated_data['sphere_mesh_checked'] = wp.from_torch(sphere_mesh_checked)
 
     # Invoke the collision repsonse kernel
     wp.launch(kernel=collision_response,
@@ -281,8 +281,8 @@ class CollisionResponse(torch.autograd.Function):
         ctx.tape = wp.Tape()
 
         # Hold onto inputs and outputs
-        ctx.point_positions = wp.torch.from_torch(point_positions, dtype=wp.vec3)
-        ctx.point_velocities = wp.torch.from_torch(point_velocities, dtype=wp.vec3)
+        ctx.point_positions = wp.from_torch(point_positions, dtype=wp.vec3)
+        ctx.point_velocities = wp.from_torch(point_velocities, dtype=wp.vec3)
         ctx.allocated_data = allocated_data
         
         with ctx.tape:
@@ -291,9 +291,9 @@ class CollisionResponse(torch.autograd.Function):
                 ctx.point_velocities,
                 ctx.allocated_data)
         
-        return (wp.torch.to_torch(ctx.allocated_data['signed_sphere_distance']),
-                wp.torch.to_torch(ctx.allocated_data['base_acceleration']),
-                wp.torch.to_torch(ctx.allocated_data['metric']))
+        return (wp.to_torch(ctx.allocated_data['signed_sphere_distance']),
+                wp.to_torch(ctx.allocated_data['base_acceleration']),
+                wp.to_torch(ctx.allocated_data['metric']))
 
     @staticmethod
     def backward(ctx, adj_signed_sphere_distance, adj_base_acceleration, adj_metric):
@@ -304,9 +304,9 @@ class CollisionResponse(torch.autograd.Function):
         :return: Pytorch tensor gradients with respect to body point position and velocity
         """
         # Map incoming Torch grads to the output variable grads
-        ctx.allocated_data['signed_sphere_distance'].grad = wp.torch.from_torch(adj_signed_sphere_distance)
-        ctx.allocated_data['base_acceleration'].grad = wp.torch.from_torch(adj_base_acceleration)
-        ctx.allocated_data['metric'].grad = wp.torch.from_torch(adj_metric)
+        ctx.allocated_data['signed_sphere_distance'].grad = wp.from_torch(adj_signed_sphere_distance)
+        ctx.allocated_data['base_acceleration'].grad = wp.from_torch(adj_base_acceleration)
+        ctx.allocated_data['metric'].grad = wp.from_torch(adj_metric)
     
         # Calculate gradients
         ctx.tape.backward()
@@ -314,8 +314,8 @@ class CollisionResponse(torch.autograd.Function):
         wp.synchronize_device()
 
         # Return adjoint w.r.t. inputs
-        return (wp.torch.to_torch(ctx.tape.gradients[ctx.point_positions]),
-                wp.torch.to_torch(ctx.tape.gradients[ctx.point_velocities]),
+        return (wp.to_torch(ctx.tape.gradients[ctx.point_positions]),
+                wp.to_torch(ctx.tape.gradients[ctx.point_velocities]),
                 None)
 
 class BaseFabricRepulsion():
@@ -345,7 +345,7 @@ class BaseFabricRepulsion():
               'num_points': self._num_points,
               'robot_body_points': wp.zeros(shape=(batch_size, self._num_points), dtype=wp.vec3, device=device),
               'robot_body_point_vels': wp.zeros(shape=(batch_size, self._num_points), dtype=wp.vec3, device=device),
-              'sphere_radius': wp.torch.from_torch(sphere_radius),
+              'sphere_radius': wp.from_torch(sphere_radius),
               'object_mesh': None,
               'object_indicator': None,
               'max_depth': params['max_depth'],
@@ -358,7 +358,7 @@ class BaseFabricRepulsion():
               'velocity_gate_sharpness': params['velocity_gate_sharpness'],
               'velocity_gate_offset': params['velocity_gate_offset'],
               'sphere_mesh_checked': None,
-              'sphere_collision_matrix': wp.torch.from_torch(collision_matrix),
+              'sphere_collision_matrix': wp.from_torch(collision_matrix),
               'signed_sphere_distance': wp.zeros(shape=(batch_size, self._num_points), dtype=float, device=device),
               'base_acceleration': wp.zeros(shape=(batch_size, self._num_points), dtype=wp.vec3, device=device),
               'metric': wp.zeros(shape=(batch_size, self._num_points * 3, self._num_points * 3), dtype=float, device=device),

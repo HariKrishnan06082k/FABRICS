@@ -16,7 +16,6 @@ import torch
 import numpy as np
 
 import warp as wp
-import warp.torch
 
 from fabrics_sim.taskmaps.maps_base import BaseMap
 
@@ -75,13 +74,13 @@ def eval_pose(
         
         q_start = joint_q_start[i]
 
-        if type == wp.sim.JOINT_REVOLUTE:
+        if type == JOINT_REVOLUTE:
 
             q = joint_q[batch_index, q_start]
 
             X_jc = wp.transform(wp.vec3(), wp.quat_from_axis_angle(axis, q))
 
-        if type == wp.sim.JOINT_FIXED:
+        if type == JOINT_FIXED:
             
             X_jc = wp.transform_identity()
 
@@ -119,12 +118,12 @@ def eval_pose(
     # Calculate the number of actively controlled joints
     num_joints = int(0)
     for i in range(joint_start, joint_end):
-        if joint_type[i] == wp.sim.JOINT_REVOLUTE:
+        if joint_type[i] == JOINT_REVOLUTE:
             num_joints += 1
     joint_index = int(0)
     for i in range(joint_start, joint_end):
         # Only build jacobian components for an actual active joint. In this case, we just check for revolute.
-        if joint_type[i] == wp.sim.JOINT_REVOLUTE:
+        if joint_type[i] == JOINT_REVOLUTE:
 
             # Extract z rotation axis for current joint
             q0 = body_q[batch_index, i][6]
@@ -239,7 +238,7 @@ class ForwardKinematics(torch.autograd.Function):
 
         # Hold onto inputs and outputs
         ctx.model = model
-        ctx.joint_q = wp.torch.from_torch(joint_q)
+        ctx.joint_q = wp.from_torch(joint_q)
         ctx.allocated_state = allocated_state
         
         with ctx.tape:
@@ -249,14 +248,14 @@ class ForwardKinematics(torch.autograd.Function):
                 None,
                 ctx.allocated_state)
         
-        return (wp.torch.to_torch(ctx.allocated_state['body_pos_o']),
-                wp.torch.to_torch(ctx.allocated_state['body_axis_x']),
-                wp.torch.to_torch(ctx.allocated_state['body_axis_y']),
-                wp.torch.to_torch(ctx.allocated_state['body_axis_z']),
-                wp.torch.to_torch(ctx.allocated_state['jacobian_pos_o']),
-                wp.torch.to_torch(ctx.allocated_state['jacobian_axis_x']),
-                wp.torch.to_torch(ctx.allocated_state['jacobian_axis_y']),
-                wp.torch.to_torch(ctx.allocated_state['jacobian_axis_z']))
+        return (wp.to_torch(ctx.allocated_state['body_pos_o']),
+                wp.to_torch(ctx.allocated_state['body_axis_x']),
+                wp.to_torch(ctx.allocated_state['body_axis_y']),
+                wp.to_torch(ctx.allocated_state['body_axis_z']),
+                wp.to_torch(ctx.allocated_state['jacobian_pos_o']),
+                wp.to_torch(ctx.allocated_state['jacobian_axis_x']),
+                wp.to_torch(ctx.allocated_state['jacobian_axis_y']),
+                wp.to_torch(ctx.allocated_state['jacobian_axis_z']))
 
     @staticmethod
     def backward(ctx, adj_body_pos_o, adj_body_axis_x, adj_body_axis_y, adj_body_axis_z,
@@ -265,27 +264,27 @@ class ForwardKinematics(torch.autograd.Function):
 
         # Map incoming Torch grads to our output variables
         grads = { ctx.allocated_state['body_pos_o']:
-                      wp.torch.from_torch(adj_body_pos_o, dtype=wp.vec3),
+                      wp.from_torch(adj_body_pos_o, dtype=wp.vec3),
                   ctx.allocated_state['body_axis_x']:
-                      wp.torch.from_torch(adj_body_axis_x, dtype=wp.vec3),
+                      wp.from_torch(adj_body_axis_x, dtype=wp.vec3),
                   ctx.allocated_state['body_axis_y']:
-                      wp.torch.from_torch(adj_body_axis_y, dtype=wp.vec3),
+                      wp.from_torch(adj_body_axis_y, dtype=wp.vec3),
                   ctx.allocated_state['body_axis_z']:
-                      wp.torch.from_torch(adj_body_axis_z, dtype=wp.vec3),
+                      wp.from_torch(adj_body_axis_z, dtype=wp.vec3),
                   ctx.allocated_state['jacobian_pos_o']:
-                      wp.torch.from_torch(adj_jacobian_pos_o, dtype=float),
+                      wp.from_torch(adj_jacobian_pos_o, dtype=float),
                   ctx.allocated_state['jacobian_axis_x']:
-                      wp.torch.from_torch(adj_jacobian_axis_x, dtype=float),
+                      wp.from_torch(adj_jacobian_axis_x, dtype=float),
                   ctx.allocated_state['jacobian_axis_y']:
-                      wp.torch.from_torch(adj_jacobian_axis_y, dtype=float),
+                      wp.from_torch(adj_jacobian_axis_y, dtype=float),
                   ctx.allocated_state['jacobian_axis_z']:
-                      wp.torch.from_torch(adj_jacobian_axis_z, dtype=float) }
+                      wp.from_torch(adj_jacobian_axis_z, dtype=float) }
 
         # Calculate gradients
         ctx.tape.backward(grads=grads)
 
         # Return adjoint w.r.t. inputs
-        return (wp.torch.to_torch(ctx.tape.gradients[ctx.joint_q]),
+        return (wp.to_torch(ctx.tape.gradients[ctx.joint_q]),
                 None,
                 None)
 

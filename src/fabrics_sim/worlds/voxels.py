@@ -149,15 +149,15 @@ class VoxelCounter(object):
         :return self._voxel_centers: (bx3) 2D Torch tensor that contain the 3D voxel center
                                      of the voxel that associates with the query point
         """
-        points_wp = wp.torch.from_torch(points, dtype=wp.vec3)
-        voxel_counter_wp = wp.torch.from_torch(self._voxel_counter)
+        points_wp = wp.from_torch(points, dtype=wp.vec3)
+        voxel_counter_wp = wp.from_torch(self._voxel_counter)
 
         # Zero out the voxel count and wrap with warp array before querying
         self._voxel_count *= 0
-        voxel_count = wp.torch.from_torch(self._voxel_count)
+        voxel_count = wp.from_torch(self._voxel_count)
 
         self._voxel_centers *= 0.
-        voxel_centers = wp.torch.from_torch(self._voxel_centers)
+        voxel_centers = wp.from_torch(self._voxel_centers)
 
         wp.launch(kernel=update_voxel_count,
                   dim=[self.batch_size, self.num_voxels_x, self.num_voxels_y, self.num_voxels_z],

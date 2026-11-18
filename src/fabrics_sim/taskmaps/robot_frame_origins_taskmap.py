@@ -15,7 +15,6 @@ import os
 import torch
 
 import warp as wp
-import warp.torch
 
 from fabrics_sim.prod.kinematics import Kinematics
 from fabrics_sim.taskmaps.maps_base import BaseMap
@@ -31,31 +30,31 @@ class RobotKinematics(torch.autograd.Function):
         ctx.tape = wp.Tape()
 
         # Hold onto inputs and outputs
-        ctx.joint_q = wp.torch.from_torch(joint_q)
+        ctx.joint_q = wp.from_torch(joint_q)
         ctx.robot_kinematics = robot_kinematics
         
         with ctx.tape:
             ctx.robot_kinematics.eval(ctx.joint_q, jacobians=True)
             #ctx.robot_kinematics.eval(ctx.joint_q, batch_qd=ctx.joint_q, velocities=True, jacobians=True)
         
-        return (wp.torch.to_torch(ctx.robot_kinematics.batch_link_transforms),
-                wp.torch.to_torch(ctx.robot_kinematics.batch_link_jacobians))
+        return (wp.to_torch(ctx.robot_kinematics.batch_link_transforms),
+                wp.to_torch(ctx.robot_kinematics.batch_link_jacobians))
 
     @staticmethod
     def backward(ctx, adj_link_transforms, adj_jacobians):
 
         # Map incoming Torch grads to our output variables
         grads = { ctx.robot_kinematics.batch_link_transforms:
-                      wp.torch.from_torch(adj_link_transforms, dtype=wp.transform),
+                      wp.from_torch(adj_link_transforms, dtype=wp.transform),
                   ctx.robot_kinematics.batch_link_jacobians:
-                      wp.torch.from_torch(adj_jacobians, dtype=wp.vec3) }
+                      wp.from_torch(adj_jacobians, dtype=wp.vec3) }
 
         # Calculate gradients
         ctx.tape.zero()
         ctx.tape.backward(grads=grads)
 
         # Return adjoint w.r.t. inputs
-        return (wp.torch.to_torch(ctx.tape.gradients[ctx.joint_q]),
+        return (wp.to_torch(ctx.tape.gradients[ctx.joint_q]),
                 None,
                 None)
 

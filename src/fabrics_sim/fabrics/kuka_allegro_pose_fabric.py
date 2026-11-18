@@ -78,11 +78,11 @@ class KukaAllegroPoseFabric(BaseFabric):
 
         # Create upper joint limiting
         # Pulling lower joint limits from urdf
-        joints = self.urdfpy_robot.joints # this is a list
+        joints = self.urdf_robot.joints # this is a list
         upper_joint_limits = []
         for i in range(len(joints)):
             # NOTE: We are only supporting revolute joints right now.
-            if joints[i].joint_type == 'revolute':
+            if joints[i].type == 'revolute':
                 upper_joint_limits.append(joints[i].limit.upper)
         # Create upper joint limiting
         # Create taskmap and its container.
@@ -101,7 +101,7 @@ class KukaAllegroPoseFabric(BaseFabric):
         # Pulling lower joint limits from urdf
         lower_joint_limits = []
         for i in range(len(joints)):
-            if joints[i].joint_type == 'revolute':
+            if joints[i].type == 'revolute':
                 lower_joint_limits.append(joints[i].limit.lower)
 
         # Create taskmap and its container.
