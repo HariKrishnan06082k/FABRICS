@@ -12,8 +12,8 @@ import torch
 import numpy as np
 
 import warp as wp
-from fabrics_sim.prod.import_urdf import parse_urdf_annotated as parse_urdf
-from fabrics_sim.prod.import_urdf import JOINT_REVOLUTE, JOINT_FIXED, JOINT_PRISMATIC
+from fabrics_sim.prod.urdf_reader import read_urdf
+from fabrics_sim.prod.urdf_reader import JOINT_REVOLUTE, JOINT_FIXED, JOINT_PRISMATIC
 from fabrics_sim.prod.cuda_stream_utils import setup_torch_to_use_warp_streams
 
 
@@ -441,7 +441,7 @@ class KinematicsBase(object):
             print("<parsing the URDF>")
         if verbose:
             print("urdf_path:", urdf_path)
-        self.urdf_info, self.model = parse_urdf(urdf_path, self.device, verbose=verbose)
+        self.urdf_info, self.model = read_urdf(urdf_path, self.device, verbose=verbose)
         self.link_index_map = self.urdf_info.link_index_map
         self.link_names = [name for name in self.urdf_info.link_index_map]
 
@@ -1295,7 +1295,7 @@ class KinematicsRaw:
             print("<parsing the URDF>")
         if verbose:
             print("urdf_path:", urdf_path)
-        info, self.model = parse_urdf(urdf_path, self.device, verbose=verbose)
+        info, self.model = read_urdf(urdf_path, self.device, verbose=verbose)
         link_index_map, cspace2link, cspace_joint_limits = info.link_index_map, info.cspace2link, info.cspace_joint_limits
         self.link_index_map = link_index_map
 
